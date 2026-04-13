@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>OUSTTER Cam + Chat</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: transparent !important;
+  width: 1280px;
+  height: 1080px;
+  overflow: hidden;
+  font-family: 'Inter', sans-serif;
+}
+
+#wrapper {
+  width: 1280px;
+  height: 1080px;
+  position: relative;
+}
+
+/* ── MARCO CÁMARA ── */
+/* Solo el borde, sin fondo, encima de la cámara */
+#cam-border {
+  position: absolute;
+  top: 0; left: 0;
+  width: 1280px;
+  height: 720px;
+  z-index: 2;
+  pointer-events: none;
+  border: 10px solid #000;
+  border-radius: 30px;
+}
+
+/* Barra inferior */
+#cam-bar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 9px 16px;
+  background: rgba(10, 10, 14, 0.82);
+  border-top: 1px solid rgba(255,255,255,0.07);
+  border-radius: 0 0 20px 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 3;
+}
+
+#dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #ff3300;
+  flex-shrink: 0;
+  transition: opacity 0.3s;
+}
+
+#viewers {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.9);
+}
+#viewers .count { color: #ff3300; margin-right: 3px; }
+
+/* ── ZONA CHAT ── */
+#chat-zone {
+  position: absolute;
+  top: 680px;
+  left: 0; right: 0;
+  height: 400px;
+  z-index: 1;
+  overflow: hidden;
+}
+
+#chat {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0 24px 12px;
+  gap: 1px;
+}
+
+.msg {
+  font-size: 15px;
+  line-height: 1.55;
+  color: #efeff1;
+  animation: fadeIn 0.3s ease forwards;
+  opacity: 0;
+  word-break: break-word;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,1);
+  padding: 2px 0;
+  flex-shrink: 0;
+}
+
+.msg .badges img {
+  width: 18px; height: 18px;
+  vertical-align: middle;
+  margin-right: 2px;
+  position: relative; top: -1px;
+}
+
+.msg .name  { font-weight: 600; }
+.msg .colon { color: rgba(255,255,255,0.4); margin: 0 3px 0 1px; }
+.msg .text  { color: #efeff1; }
+
+.msg .text img.emote {
+  width: 24px; height: 24px;
+  vertical-align: middle;
+  margin: 0 1px;
+}
+
+.msg-exit { animation: fadeOut 0.25s ease forwards; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+</style>
+</head>
+<body>
+
+<div id="wrapper">
+
+  <!-- Chat debajo (z-index 1) -->
+  <div id="chat-zone">
+    <div id="chat"></div>
+  </div>
+
+  <!-- Marco cámara encima (z-index 2) — solo borde -->
+  <div id="cam-border">
+    <div id="cam-bar">
+      <div id="dot"></div>
+      <span id="viewers"><span class="count">—</span> viewers</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const CLIENT_ID     = '3u6uqwqn4t1v1bqx58rb1xjr65l8wy';
+const CLIENT_SECRET = '1z2emmcpcrfp101b6k65fbizg04lcx';
+const CHANNEL       = 'oustter';
+const MAX           = 10;
+
+const chat     = document.getElementById('chat');
+const FALLBACK = ['#ff4444','#ff9900','#ffcc00','#44aaff','#aa66ff','#ff66aa','#44ffcc','#ff6633'];
+
+const BADGE_URLS = {
+  broadcaster: 'https://static-cdn.jtvnw.net/badges/v1/5527c58c-fb7d-422d-b71b-f309dcab244d/1',
+  moderator:   'https://static-cdn.jtvnw.net/badges/v1/3267646d-33f0-4b17-b3df-f923a41db1d0/1',
+  vip:         'https://static-cdn.jtvnw.net/badges/v1/b817aba4-fad8-49e2-b88a-7cc744dfa6ec/1',
+  subscriber:  'https://static-cdn.jtvnw.net/badges/v1/5d9f2208-5dd8-11e7-8513-2ff4adfae661/1',
+  partner:     'https://static-cdn.jtvnw.net/badges/v1/d12a2e27-16f6-41d0-ab77-b780518f00a3/1',
+  turbo:       'https://static-cdn.jtvnw.net/badges/v1/bd444ec6-8f34-4bf9-91f4-af1e3428d80f/1',
+};
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function parseBadgesHtml(badgesTag) {
+  if (!badgesTag) return '';
+  let html = '';
+  for (const b of badgesTag.split(',')) {
+    const key = b.split('/')[0];
+    if (BADGE_URLS[key]) html += `<img src="${BADGE_URLS[key]}" alt="${key}">`;
+  }
+  return html ? `<span class="badges">${html}</span>` : '';
+}
+
+function parseEmotesHtml(emotesTag, message) {
+  if (!emotesTag) return esc(message);
+  const map = {};
+  for (const part of emotesTag.split('/')) {
+    if (!part) continue;
+    const [id, positions] = part.split(':');
+    if (!positions) continue;
+    for (const pos of positions.split(',')) {
+      const [start, end] = pos.split('-').map(Number);
+      map[start] = { id, end };
+    }
+  }
+  if (!Object.keys(map).length) return esc(message);
+  let html = '', i = 0;
+  while (i < message.length) {
+    if (map[i]) {
+      const { id, end } = map[i];
+      html += `<img class="emote" src="https://static-cdn.jtvnw.net/emoticons/v2/${id}/default/dark/1.0" alt="">`;
+      i = end + 1;
+    } else { html += esc(message[i]); i++; }
+  }
+  return html;
+}
+
+function addMsg(name, color, badgesTag, message, emotesTag) {
+  const div = document.createElement('div');
+  div.className = 'msg';
+  const col = (color && color !== '') ? color : FALLBACK[Math.floor(Math.random() * FALLBACK.length)];
+  div.innerHTML = `${parseBadgesHtml(badgesTag)}<span class="name" style="color:${col}">${esc(name)}</span><span class="colon">:</span><span class="text"> ${parseEmotesHtml(emotesTag, message)}</span>`;
+  chat.appendChild(div);
+  const all = chat.querySelectorAll('.msg');
+  if (all.length > MAX) {
+    const old = all[0];
+    old.classList.add('msg-exit');
+    setTimeout(() => old.remove(), 250);
+  }
+}
+
+function connect() {
+  const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+  ws.onopen = () => {
+    ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+    ws.send('PASS SCHMOOPIIE');
+    ws.send('NICK justinfan' + Math.floor(Math.random() * 99999));
+    ws.send('JOIN #' + CHANNEL);
+  };
+  ws.onmessage = (e) => {
+    const raw = e.data;
+    if (raw.startsWith('PING')) { ws.send('PONG :tmi.twitch.tv'); return; }
+    for (const line of raw.split('\r\n')) {
+      if (!line.includes('PRIVMSG')) continue;
+      let color = '', name = '', badges = '', text = '', emotes = '';
+      if (line.startsWith('@')) {
+        const sp   = line.indexOf(' ');
+        const tags = line.substring(1, sp);
+        const rest = line.substring(sp + 1);
+        for (const t of tags.split(';')) {
+          if (t.startsWith('color='))        color  = t.slice(6);
+          if (t.startsWith('display-name=')) name   = t.slice(13);
+          if (t.startsWith('badges='))       badges = t.slice(7);
+          if (t.startsWith('emotes='))       emotes = t.slice(7);
+        }
+        const m = rest.match(/PRIVMSG #\w+ :(.+)/);
+        if (m) text = m[1].trim();
+      } else {
+        const u = line.match(/:(\w+)!/);
+        const m = line.match(/PRIVMSG #\w+ :(.+)/);
+        if (u) name = u[1];
+        if (m) text = m[1].trim();
+      }
+      if (name && text) addMsg(name, color, badges, text, emotes);
+    }
+  };
+  ws.onclose = () => setTimeout(connect, 3000);
+  ws.onerror = () => ws.close();
+}
+
+connect();
+
+let token = null;
+async function getToken() {
+  const res = await fetch(`https://id.twitch.tv/oauth2/token?client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&grant_type=client_credentials`, { method: 'POST' });
+  return (await res.json()).access_token;
+}
+async function getViewers() {
+  try {
+    if (!token) token = await getToken();
+    const res = await fetch(`https://api.twitch.tv/helix/streams?user_login=${CHANNEL}`, {
+      headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${token}` }
+    });
+    if (res.status === 401) { token = await getToken(); return getViewers(); }
+    const data = await res.json();
+    const stream = data.data && data.data[0];
+    document.querySelector('#viewers .count').textContent = stream ? stream.viewer_count.toLocaleString('es-ES') : '0';
+  } catch(e) {}
+}
+getViewers();
+setInterval(getViewers, 60000);
+
+const dot = document.getElementById('dot');
+let b = true;
+setInterval(() => { dot.style.opacity = (b = !b) ? '1' : '0.3'; }, 900);
+</script>
+</body>
+</html>
